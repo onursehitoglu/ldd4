@@ -57,8 +57,9 @@ void scullp_vma_close(struct vm_area_struct *vma)
  * is individually decreased, and would drop to 0.
  */
 
-int scullp_vma_nopage(struct vm_area_struct *vma, struct vm_fault *vmf)
+int scullp_vma_nopage(struct vm_fault *vmf)
 {
+	struct vm_area_struct *vma = vmf->vma;
 	unsigned long offset;
 	struct scullp_dev *ptr, *dev = vma->vm_private_data;
 	struct page *page = NULL;
@@ -66,7 +67,7 @@ int scullp_vma_nopage(struct vm_area_struct *vma, struct vm_fault *vmf)
 	int ret = 0;
 
 	mutex_lock(&dev->mutex);
-	offset = (unsigned long)(vmf->virtual_address - vma->vm_start) + (vma->vm_pgoff << PAGE_SHIFT);
+	offset = (unsigned long)(vmf->address - vma->vm_start) + (vma->vm_pgoff << PAGE_SHIFT);
 	if (offset >= dev->size) goto out; /* out of range */
 
 	/*
@@ -106,7 +107,7 @@ struct vm_operations_struct scullp_vm_ops = {
 
 int scullp_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-	struct inode *inode = filp->f_dentry->d_inode;
+	struct inode *inode = filp->f_inode;
 
 	/* refuse to map if order is not 0 */
 	if (scullp_devices[iminor(inode)].order)

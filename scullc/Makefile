@@ -5,7 +5,7 @@
 ifeq ($(DEBUG),y)
   DEBFLAGS = -O -g -DSCULLC_DEBUG # "-O" is needed to expand inlines
 else
-  DEBFLAGS = -O2
+  DEBFLAGS = -g -O
 endif
 
 ccflags-y += $(DEBFLAGS)

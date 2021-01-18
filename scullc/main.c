@@ -26,7 +26,8 @@
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
 #include <linux/aio.h>
-#include <asm/uaccess.h>
+#include <linux/uio.h>
+#include <linux/uaccess.h>
 #include "scullc.h"		/* local definitions */
 
 
@@ -250,6 +251,7 @@ ssize_t scullc_write (struct file *filp, const char __user *buf, size_t count,
 	}
 	if (count > quantum - q_pos)
 		count = quantum - q_pos; /* write only up to the end of this quantum */
+
 	if (copy_from_user (dptr->data[s_pos]+q_pos, buf, count)) {
 		retval = -EFAULT;
 		goto nomem;
@@ -408,33 +410,40 @@ struct async_work {
 static void scullc_do_deferred_op(struct work_struct *work)
 {
 	struct async_work *stuff = container_of(work, struct async_work, work.work);
-	aio_complete(stuff->iocb, stuff->result, 0);
+	//aio_complete(stuff->iocb, stuff->result, 0);
+	stuff->iocb->ki_complete(stuff->iocb, stuff->result, 0);
 	kfree(stuff);
 }
 
 
-size_t scullc_defer_op(int write, struct kiocb *iocb,
-		const struct iovec *iovec, unsigned long nr_segs, loff_t pos)
+size_t scullc_defer_op(int write, struct kiocb *iocb, struct iov_iter *iovi)
 {
 	struct async_work *stuff;
-	unsigned long seg;
+	//unsigned long seg;
 	size_t count;
 	size_t result = 0;
+	loff_t pos;
 
-	/* Copy now while we can access the buffer */
-	for (seg = 0; seg < nr_segs; seg++) {
+	while (iov_iter_count(iovi)) {
+  		//size_t chunk = iov_iter_count(iovi);
+		struct iovec iov;
+
+		iov = iov_iter_iovec(iovi);
 		if (write)
-			count = scullc_write(iocb->ki_filp, iovec[seg].iov_base,
-					iovec[seg].iov_len, &pos);
+			count = scullc_write(iocb->ki_filp, iov.iov_base,
+					iov.iov_len, &pos);
 		else
-			count = scullc_read(iocb->ki_filp, iovec[seg].iov_base,
-					iovec[seg].iov_len, &pos);
-
-		if (count < 0) {
+			count = scullc_read(iocb->ki_filp, iov.iov_base,
+					iov.iov_len, &pos);
+		if (count < 0)
 			return count;
-		}
+		else if (count == 0)
+			break;
+
+		iov_iter_advance(iovi, count);
 		result += count;
-	}
+  	}
+	printk("result: %ld\n", result);
 
 	/* If this is a synchronous IOCB, we return our status now. */
 	if (is_sync_kiocb(iocb))
@@ -452,16 +461,14 @@ size_t scullc_defer_op(int write, struct kiocb *iocb,
 }
 
 
-static ssize_t scullc_aio_read(struct kiocb *iocb, const struct iovec *iovec,
-		unsigned long nr_segs, loff_t pos)
+static ssize_t scullc_aio_read(struct kiocb *iocb, struct iov_iter *iovec)
 {
-	return scullc_defer_op(0, iocb, iovec, nr_segs, pos);
+	return scullc_defer_op(0, iocb, iovec);
 }
 
-static ssize_t scullc_aio_write(struct kiocb *iocb, const struct iovec *iovec,
-		unsigned long nr_segs, loff_t pos)
+static ssize_t scullc_aio_write(struct kiocb *iocb, struct iov_iter *iovec)
 {
-	return scullc_defer_op(1, iocb, iovec, nr_segs, pos);
+	return scullc_defer_op(1, iocb, iovec);
 }
 
 
@@ -479,8 +486,8 @@ struct file_operations scullc_fops = {
 	.unlocked_ioctl = scullc_ioctl,
 	.open =	     scullc_open,
 	.release =   scullc_release,
-	.aio_read =  scullc_aio_read,
-	.aio_write = scullc_aio_write,
+	.read_iter =  scullc_aio_read,
+	.write_iter = scullc_aio_write,
 };
 
 int scullc_trim(struct scullc_dev *dev)
@@ -566,8 +573,8 @@ int scullc_init(void)
 		scullc_setup_cdev(scullc_devices + i, i);
 	}
 
-	scullc_cache = kmem_cache_create("scullc", scullc_quantum,
-			0, SLAB_HWCACHE_ALIGN, NULL); /* no ctor */
+	scullc_cache = kmem_cache_create_usercopy("scullc", scullc_quantum,
+			0, SLAB_HWCACHE_ALIGN, 0, scullc_quantum, NULL); /* no ctor */
 	if (!scullc_cache) {
 		scullc_cleanup();
 		return -ENOMEM;

@@ -15,7 +15,6 @@
  * $Id: _mmap.c.in,v 1.13 2004/10/18 18:07:36 corbet Exp $
  */
 
-#include <linux/config.h>
 #include <linux/module.h>
 
 #include <linux/mm.h>		/* everything */
@@ -56,13 +55,14 @@ void sculld_vma_close(struct vm_area_struct *vma)
  * pages from a multipage block: when they are unmapped, their count
  * is individually decreased, and would drop to 0.
  */
-
-struct page *sculld_vma_nopage(struct vm_area_struct *vma,
-                                unsigned long address, int *type)
+vm_fault_t sculld_vma_fault(struct vm_fault *vmf)
 {
+	struct vm_area_struct *vma = vmf->vma;
+	vm_fault_t result = VM_FAULT_SIGBUS;
+	unsigned long address = vmf->address;
 	unsigned long offset;
 	struct sculld_dev *ptr, *dev = vma->vm_private_data;
-	struct page *page = NOPAGE_SIGBUS;
+	struct page *page = NULL;
 	void *pageptr = NULL; /* default to "missing" */
 
 	down(&dev->sem);
@@ -82,13 +82,17 @@ struct page *sculld_vma_nopage(struct vm_area_struct *vma,
 	if (ptr && ptr->data) pageptr = ptr->data[offset];
 	if (!pageptr) goto out; /* hole or end-of-file */
 
+	page = virt_to_page(pageptr);
+
+  	get_page(page);
+  	vmf->page = page;
+
 	/* got it, now increment the count */
 	get_page(page);
-	if (type)
-		*type = VM_FAULT_MINOR;
+	result = 0;
   out:
 	up(&dev->sem);
-	return page;
+	return result;
 }
 
 
@@ -96,13 +100,13 @@ struct page *sculld_vma_nopage(struct vm_area_struct *vma,
 struct vm_operations_struct sculld_vm_ops = {
 	.open =     sculld_vma_open,
 	.close =    sculld_vma_close,
-	.nopage =   sculld_vma_nopage,
+	.fault =  sculld_vma_fault  
 };
 
 
 int sculld_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-	struct inode *inode = filp->f_dentry->d_inode;
+	struct inode *inode = filp->f_inode;
 
 	/* refuse to map if order is not 0 */
 	if (sculld_devices[iminor(inode)].order)
@@ -110,7 +114,7 @@ int sculld_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	/* don't do anything here: "nopage" will set up page table entries */
 	vma->vm_ops = &sculld_vm_ops;
-	vma->vm_flags |= VM_RESERVED;
+	vma->vm_flags |= VM_IO;
 	vma->vm_private_data = filp->private_data;
 	sculld_vma_open(vma);
 	return 0;

@@ -15,7 +15,6 @@
  * $Id: _main.c.in,v 1.21 2004/10/14 20:11:39 corbet Exp $
  */
 
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
@@ -26,8 +25,8 @@
 #include <linux/types.h>	/* size_t */
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
-#include <linux/aio.h>
-#include <asm/uaccess.h>
+#include <linux/uio.h>
+#include <linux/uaccess.h>
 #include "sculld.h"		/* local definitions */
 
 
@@ -280,7 +279,7 @@ ssize_t sculld_write (struct file *filp, const char __user *buf, size_t count,
  * The ioctl() implementation
  */
 
-int sculld_ioctl (struct inode *inode, struct file *filp,
+long sculld_ioctl (struct file *filp,
                  unsigned int cmd, unsigned long arg)
 {
 
@@ -409,31 +408,40 @@ loff_t sculld_llseek (struct file *filp, loff_t off, int whence)
 struct async_work {
 	struct kiocb *iocb;
 	int result;
-	struct work_struct work;
+	struct delayed_work work;
 };
 
 /*
  * "Complete" an asynchronous operation.
  */
-static void sculld_do_deferred_op(void *p)
+static void sculld_do_deferred_op(struct work_struct *p)
 {
-	struct async_work *stuff = (struct async_work *) p;
-	aio_complete(stuff->iocb, stuff->result, 0);
+	struct async_work *stuff = container_of(p, struct async_work, work.work);
+	//aio_complete(stuff->iocb, stuff->result, 0);
+	stuff->iocb->ki_complete(stuff->iocb, stuff->result, 0);
 	kfree(stuff);
 }
 
 
-static int sculld_defer_op(int write, struct kiocb *iocb, char __user *buf,
-		size_t count, loff_t pos)
+static int sculld_defer_op(int write, struct kiocb *iocb, struct iov_iter *iovi)
 {
 	struct async_work *stuff;
-	int result;
+	int result = 0;
+	struct iovec iov;
+	loff_t pos;
+
+	if (! iov_iter_count(iovi))
+		return result;
+
+	iov = iov_iter_iovec(iovi);
 
 	/* Copy now while we can access the buffer */
 	if (write)
-		result = sculld_write(iocb->ki_filp, buf, count, &pos);
+		result = sculld_write(iocb->ki_filp, iov.iov_base, iov.iov_len, &pos);
 	else
-		result = sculld_read(iocb->ki_filp, buf, count, &pos);
+		result = sculld_read(iocb->ki_filp, iov.iov_base, iov.iov_len, &pos);
+
+	iov_iter_advance(iovi, result);
 
 	/* If this is a synchronous IOCB, we return our status now. */
 	if (is_sync_kiocb(iocb))
@@ -445,22 +453,20 @@ static int sculld_defer_op(int write, struct kiocb *iocb, char __user *buf,
 		return result; /* No memory, just complete now */
 	stuff->iocb = iocb;
 	stuff->result = result;
-	INIT_WORK(&stuff->work, sculld_do_deferred_op, stuff);
+	INIT_DELAYED_WORK(&stuff->work, sculld_do_deferred_op);
 	schedule_delayed_work(&stuff->work, HZ/100);
 	return -EIOCBQUEUED;
 }
 
 
-static ssize_t sculld_aio_read(struct kiocb *iocb, char __user *buf, size_t count,
-		loff_t pos)
+static ssize_t sculld_aio_read(struct kiocb *iocb, struct iov_iter *iovec)
 {
-	return sculld_defer_op(0, iocb, buf, count, pos);
+	return sculld_defer_op(0, iocb, iovec);
 }
 
-static ssize_t sculld_aio_write(struct kiocb *iocb, const char __user *buf,
-		size_t count, loff_t pos)
+static ssize_t sculld_aio_write(struct kiocb *iocb, struct iov_iter *iovec)
 {
-	return sculld_defer_op(1, iocb, (char __user *) buf, count, pos);
+	return sculld_defer_op(1, iocb, iovec);
 }
 
 
@@ -480,12 +486,12 @@ struct file_operations sculld_fops = {
 	.llseek =    sculld_llseek,
 	.read =	     sculld_read,
 	.write =     sculld_write,
-	.ioctl =     sculld_ioctl,
+	.unlocked_ioctl =     sculld_ioctl,
 	.mmap =	     sculld_mmap,
 	.open =	     sculld_open,
 	.release =   sculld_release,
-	.aio_read =  sculld_aio_read,
-	.aio_write = sculld_aio_write,
+	.read_iter =  sculld_aio_read,
+	.write_iter = sculld_aio_write,
 };
 
 int sculld_trim(struct sculld_dev *dev)
@@ -532,7 +538,7 @@ static void sculld_setup_cdev(struct sculld_dev *dev, int index)
 		printk(KERN_NOTICE "Error %d adding scull%d", err, index);
 }
 
-static ssize_t sculld_show_dev(struct device *ddev, char *buf)
+static ssize_t sculld_show_dev(struct device *ddev, struct device_attribute *adev, char *buf)
 {
 	struct sculld_dev *dev = ddev->driver_data;
 

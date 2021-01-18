@@ -26,7 +26,7 @@
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
 #include <linux/aio.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/vmalloc.h>
 #include "scullv.h"		/* local definitions */
 
@@ -404,6 +404,7 @@ struct async_work {
 /*
  * "Complete" an asynchronous operation.
  */
+/*
 static void scullv_do_deferred_op(struct work_struct * work)
 {
 	struct async_work *stuff = container_of(work, struct async_work, work.work);
@@ -420,7 +421,7 @@ static int scullv_defer_op(int write, struct kiocb *iocb,
 	size_t count;
 	size_t result = 0;
 
-	/* Copy now while we can access the buffer */
+	// * Copy now while we can access the buffer *
 	for (seg = 0; seg < nr_segs; seg++) {
 		if (write)
 			count = scullv_write(iocb->ki_filp, iovec[seg].iov_base,
@@ -435,14 +436,14 @@ static int scullv_defer_op(int write, struct kiocb *iocb,
 		result += count;
 	}
 
-	/* If this is a synchronous IOCB, we return our status now. */
+	// * If this is a synchronous IOCB, we return our status now. *
 	if (is_sync_kiocb(iocb))
 		return result;
 
-	/* Otherwise defer the completion for a few milliseconds. */
+	// * Otherwise defer the completion for a few milliseconds. *
 	stuff = kmalloc (sizeof (*stuff), GFP_KERNEL);
 	if (stuff == NULL)
-		return result; /* No memory, just complete now */
+		return result; // * No memory, just complete now *
 	stuff->iocb = iocb;
 	stuff->result = result;
 	INIT_DELAYED_WORK(&stuff->work, scullv_do_deferred_op);
@@ -461,6 +462,7 @@ static ssize_t scullv_aio_write(struct kiocb *iocb, const struct iovec *iovec,
 {
 	return scullv_defer_op(1, iocb, iovec, nr_segs, pos);
 }
+*/
 
  
 /*
@@ -482,8 +484,9 @@ struct file_operations scullv_fops = {
 	.mmap =	     scullv_mmap,
 	.open =	     scullv_open,
 	.release =   scullv_release,
+	/*
 	.aio_read =  scullv_aio_read,
-	.aio_write = scullv_aio_write,
+	.aio_write = scullv_aio_write,*/
 };
 
 int scullv_trim(struct scullv_dev *dev)

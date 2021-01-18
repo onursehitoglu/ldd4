@@ -25,8 +25,8 @@
 #include <linux/types.h>	/* size_t */
 #include <linux/proc_fs.h>
 #include <linux/fcntl.h>	/* O_ACCMODE */
-#include <linux/aio.h>
-#include <asm/uaccess.h>
+#include <linux/uio.h>
+#include <linux/uaccess.h>
 #include "scullp.h"		/* local definitions */
 
 
@@ -404,6 +404,7 @@ struct async_work {
 /*
  * "Complete" an asynchronous operation.
  */
+/*
 static void scullp_do_deferred_op(struct work_struct *work)
 {
 	struct async_work *stuff = container_of(work, struct async_work, work.work);
@@ -420,7 +421,7 @@ static int scullp_defer_op(int write, struct kiocb *iocb,
 	size_t count;
 	size_t result = 0;
 
-	/* Copy now while we can access the buffer */
+	// * Copy now while we can access the buffer *
 	for (seg = 0; seg < nr_segs; seg++) {
 		if (write)
 			count = scullp_write(iocb->ki_filp, iovec[seg].iov_base,
@@ -435,22 +436,24 @@ static int scullp_defer_op(int write, struct kiocb *iocb,
 		result += count;
 	}
 
-	/* If this is a synchronous IOCB, we return our status now. */
+	// * If this is a synchronous IOCB, we return our status now. *
 	if (is_sync_kiocb(iocb))
 		return result;
 
-	/* Otherwise defer the completion for a few milliseconds. */
+	// * Otherwise defer the completion for a few milliseconds. *
 	stuff = kmalloc (sizeof (*stuff), GFP_KERNEL);
 	if (stuff == NULL)
-		return result; /* No memory, just complete now */
+		return result; // * No memory, just complete now *
 	stuff->iocb = iocb;
 	stuff->result = result;
 	INIT_DELAYED_WORK(&stuff->work, scullp_do_deferred_op);
 	schedule_delayed_work(&stuff->work, HZ/100);
 	return -EIOCBQUEUED;
 }
+*/
 
 
+/*
 static ssize_t scullp_aio_read(struct kiocb *iocb, const struct iovec *iovec,
 		unsigned long nr_segs, loff_t pos)
 {
@@ -462,6 +465,7 @@ static ssize_t scullp_aio_write(struct kiocb *iocb, const struct iovec *iovec,
 {
 	return scullp_defer_op(1, iocb, iovec, nr_segs, pos);
 }
+*/
 
 
  
@@ -484,8 +488,10 @@ struct file_operations scullp_fops = {
 	.mmap =	     scullp_mmap,
 	.open =	     scullp_open,
 	.release =   scullp_release,
+	/*
 	.aio_read =  scullp_aio_read,
 	.aio_write = scullp_aio_write,
+	*/
 };
 
 int scullp_trim(struct scullp_dev *dev)

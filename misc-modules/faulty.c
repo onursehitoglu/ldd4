@@ -22,6 +22,7 @@
 #include <linux/types.h>
 #include <linux/cdev.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -32,7 +33,8 @@ ssize_t faulty_read(struct file *filp, char __user *buf,
 		    size_t count, loff_t *pos)
 {
 	int ret;
-	char stack_buf[4];
+	char stack_buf[20];
+	//char stack_buf[4];
 
 	/* Let's try a buffer overflow. */
 	memset(stack_buf, 0xff, 20);

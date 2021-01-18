@@ -27,7 +27,8 @@
 #include <linux/poll.h>
 #include <linux/cdev.h>
 #include <linux/sched.h>
-#include <asm/uaccess.h>
+#include <linux/sched/signal.h>
+#include <linux/uaccess.h>
 
 #include "scull.h"		/* local definitions */
 
