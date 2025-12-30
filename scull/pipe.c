@@ -320,7 +320,7 @@ static int scull_read_p_mem(char *buf, char **start, off_t offset, int count,
  */
 struct file_operations scull_pipe_fops = {
 	.owner =	THIS_MODULE,
-	.llseek =	no_llseek,
+	.llseek =	noop_llseek,
 	.read =		scull_p_read,
 	.write =	scull_p_write,
 	.poll =		scull_p_poll,
